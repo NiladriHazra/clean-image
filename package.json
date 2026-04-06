@@ -1,0 +1,56 @@
+{
+  "name": "clean-image",
+  "version": "1.0.0",
+  "description": "Strip AI detection metadata from images. Four-pass pipeline. Zero evidence.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "clean-image": "bin/cli.js"
+  },
+  "scripts": {
+    "start": "node bin/cli.js",
+    "test": "node test/run.js"
+  },
+  "keywords": [
+    "ai",
+    "metadata",
+    "exif",
+    "xmp",
+    "c2pa",
+    "content-credentials",
+    "image",
+    "strip",
+    "clean",
+    "privacy",
+    "midjourney",
+    "stable-diffusion",
+    "dall-e",
+    "cli",
+    "tui"
+  ],
+  "author": "Niladri Hazra",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NiladriHazra/clean-image.git"
+  },
+  "homepage": "https://github.com/NiladriHazra/clean-image",
+  "bugs": {
+    "url": "https://github.com/NiladriHazra/clean-image/issues"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "inquirer": "^12.6.0",
+    "ora": "^8.2.0"
+  }
+}
