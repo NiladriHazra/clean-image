@@ -1,42 +1,14 @@
-import { resolve, extname, join } from 'node:path';
-import { access, mkdir, copyFile, writeFile, readFile } from 'node:fs/promises';
+import { execSync, spawn } from 'node:child_process';
+import { access, copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { homedir, platform } from 'node:os';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
-import { execSync, spawn as _spawn } from 'node:child_process';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-function cleanPath(raw) {
-  let p = raw.trim();
-  p = p.replace(/^['"`]|['"`]$/g, '');
-  p = p.replace(/\\(?=[ ()'])/g, '');
-  return p;
-}
-
-function copyToClipboard(text) {
-  try {
-    if (platform() === 'darwin') {
-      execSync(`printf '%s' ${JSON.stringify(text)} | pbcopy`);
-    } else if (platform() === 'linux') {
-      execSync(`printf '%s' ${JSON.stringify(text)} | xclip -selection clipboard`);
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Simulate keyboard input to auto-type text into the spawned CLI
-function simulateType(child, text, delay = 300) {
-  setTimeout(() => {
-    if (child.stdin && child.stdin.writable) {
-      child.stdin.write(text);
-    }
-  }, delay);
-}
-
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ALL_HOSTS_VALUE = 'all';
+const MANUAL_PATH_VALUE = '__manual__';
+const SKIP_LAUNCH_VALUE = 'skip';
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.tiff', '.tif', '.bmp', '.avif']);
 const CLI_HOSTS = [
   {
     name: 'Claude Code',
@@ -67,9 +39,43 @@ const CLI_HOSTS = [
   },
 ];
 
+function cleanPath(raw) {
+  return raw
+    .trim()
+    .replace(/^['"`]|['"`]$/g, '')
+    .replace(/\\(?=[ ()'])/g, '');
+}
+
+function copyToClipboard(text) {
+  try {
+    const os = platform();
+    if (os === 'darwin') {
+      execSync(`printf '%s' ${JSON.stringify(text)} | pbcopy`);
+    } else if (os === 'linux') {
+      execSync(`printf '%s' ${JSON.stringify(text)} | xclip -selection clipboard`);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findHost(value) {
+  return CLI_HOSTS.find((host) => host.value === value);
+}
+
+function formatHostChoice(host, chalk) {
+  const padding = ' '.repeat(Math.max(1, 14 - host.name.length));
+  return `  ${chalk.magenta('◆')} ${chalk.bold(host.name)}${padding}${chalk.dim(host.description)}`;
+}
+
+function getSkillSourcePath() {
+  return join(__dirname, '..', '.claude', 'commands', 'clean-image.md');
+}
+
 async function installSkill(host, chalk, ora) {
-  const skillSource = join(__dirname, '..', '.claude', 'commands', 'clean-image.md');
   const spinner = ora({ text: `Installing for ${host.name}...`, color: 'cyan' }).start();
+  const skillSource = getSkillSourcePath();
 
   try {
     await mkdir(host.skillDir, { recursive: true });
@@ -78,27 +84,31 @@ async function installSkill(host, chalk, ora) {
       const skillContent = await readFile(skillSource, 'utf-8');
       const codexPath = join(host.skillDir, host.skillFile);
       let existing = '';
-      try { existing = await readFile(codexPath, 'utf-8'); } catch {}
+
+      try {
+        existing = await readFile(codexPath, 'utf-8');
+      } catch {}
+
       if (existing.includes('clean-image')) {
         spinner.succeed(chalk.green(`${host.name} — already installed`));
         return;
       }
-      await writeFile(codexPath, existing + `\n\n---\n\n# clean-image\n\n${skillContent}`);
+
+      await writeFile(codexPath, `${existing}\n\n---\n\n# clean-image\n\n${skillContent}`);
     } else {
       await copyFile(skillSource, join(host.skillDir, host.skillFile));
     }
 
     spinner.succeed(chalk.green(`${host.name} — installed ✓`));
-  } catch (err) {
-    spinner.fail(chalk.red(`${host.name} — ${err.message}`));
+  } catch (error) {
+    spinner.fail(chalk.red(`${host.name} — ${error.message}`));
   }
 }
 
 function printHeader(chalk) {
-  const c1 = chalk.hex('#ffde00'); // yellow
-  const c2 = chalk.hex('#ff8c00'); // orange
-  const c3 = chalk.hex('#ff3300'); // red
-  const dim = chalk.dim;
+  const c1 = chalk.hex('#ffde00');
+  const c2 = chalk.hex('#ff8c00');
+  const c3 = chalk.hex('#ff3300');
 
   console.log('');
   console.log(c1('    ██████╗██╗     ███████╗ █████╗ ███╗   ██╗'));
@@ -107,7 +117,6 @@ function printHeader(chalk) {
   console.log(c2('   ██║     ██║     ██╔══╝  ██╔══██║██║╚██╗██║'));
   console.log(c3('   ╚██████╗███████╗███████╗██║  ██║██║ ╚████║'));
   console.log(c3('    ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝'));
-
   console.log(c1('    ██╗███╗   ███╗ █████╗  ██████╗ ███████╗'));
   console.log(c1('    ██║████╗ ████║██╔══██╗██╔════╝ ██╔════╝'));
   console.log(c2('    ██║██╔████╔██║███████║██║  ███╗█████╗'));
@@ -115,169 +124,220 @@ function printHeader(chalk) {
   console.log(c3('    ██║██║ ╚═╝ ██║██║  ██║╚██████╔╝███████╗'));
   console.log(c3('    ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝'));
   console.log('');
-  console.log(dim('    Strip AI metadata. Four passes. Zero trace.'));
-  console.log(dim('    ─────────────────────────────────────────'));
+  console.log(chalk.dim('    Strip AI metadata. Four passes. Zero trace.'));
   console.log('');
 }
 
-export async function runTUI() {
-  const chalk = (await import('chalk')).default;
-  const ora = (await import('ora')).default;
-  const inquirer = (await import('inquirer')).default;
-  const { checkDeps, cleanImage, getMetadataCount, getFileSize } = await import('./cleaner.js');
+function printResults(chalk, { mode, inputSize, outputSize, inputMeta, outputMeta, outPath }) {
+  const modeLabel = mode === 'aggressive' ? 'aggressive' : mode === 'strip' ? 'strip-only' : 'standard';
+  const savedPct = Math.round((1 - outputSize / inputSize) * 100);
+  const metaRemoved = inputMeta - outputMeta;
 
-  printHeader(chalk);
+  console.log('');
+  console.log(chalk.bold.white('    RESULTS'));
+  console.log(`    ${chalk.dim('Mode')}       ${chalk.cyan(modeLabel)}`);
+  console.log(`    ${chalk.dim('Size')}       ${Math.round(inputSize / 1024)} KB → ${chalk.green.bold(`${Math.round(outputSize / 1024)} KB`)} ${chalk.dim(`(${savedPct > 0 ? '-' : '+'}${Math.abs(savedPct)}%)`)}`);
+  console.log(`    ${chalk.dim('Metadata')}   ${inputMeta} fields → ${chalk.green.bold(`${outputMeta} fields`)} ${chalk.dim(`(${metaRemoved} stripped)`)}`);
+  console.log(`    ${chalk.dim('Output')}     ${chalk.white(outPath)}`);
+  console.log('');
+  console.log(chalk.green.bold('    ✓ Zero AI fingerprints remain.'));
+  console.log('');
+}
 
-  // Main menu
-  const { action } = await inquirer.prompt([{
+function ensureCliAvailable(host) {
+  try {
+    execSync(`which ${host.cmd}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function launchCli(host) {
+  const launchArgs = host.value === 'claude' ? ['--dangerously-skip-permissions'] : [];
+  const child = spawn(host.cmd, launchArgs, { stdio: 'inherit' });
+  child.on('close', () => process.exit(0));
+}
+
+async function promptForCliTarget(inquirer, chalk) {
+  const { cli } = await inquirer.prompt([{
     type: 'list',
-    name: 'action',
-    message: chalk.bold('What do you want to do?'),
+    name: 'cli',
+    message: chalk.bold('Which CLI?'),
     choices: [
-      { name: `  ${chalk.green('●')} ${chalk.bold('Clean an image')}        ${chalk.dim('— strip AI metadata now')}`, value: 'clean' },
-      { name: `  ${chalk.cyan('●')} ${chalk.bold('Install CLI skill')}     ${chalk.dim('— add to Claude / Codex / OpenCode')}`, value: 'install' },
+      ...CLI_HOSTS.map((host) => ({
+        name: formatHostChoice(host, chalk),
+        value: host.value,
+      })),
+      {
+        name: `  ${chalk.yellow('◆')} ${chalk.bold('All of them')}   ${chalk.dim('install everywhere')}`,
+        value: ALL_HOSTS_VALUE,
+      },
     ],
     loop: false,
   }]);
 
-  // ═══════════════════════════════════════
-  // INSTALL FLOW
-  // ═══════════════════════════════════════
-  if (action === 'install') {
-    console.log('');
-    const { cli } = await inquirer.prompt([{
-      type: 'list',
-      name: 'cli',
-      message: chalk.bold('Which CLI?'),
-      choices: [
-        ...CLI_HOSTS.map(h => ({
-          name: `  ${chalk.magenta('◆')} ${chalk.bold(h.name)}${' '.repeat(14 - h.name.length)}${chalk.dim(h.description)}`,
-          value: h.value,
-        })),
-        new inquirer.Separator(chalk.dim('  ────────────────────────────────')),
-        { name: `  ${chalk.yellow('◆')} ${chalk.bold('All of them')}   ${chalk.dim('install everywhere')}`, value: 'all' },
-      ],
-      loop: false,
-    }]);
+  return cli;
+}
 
-    console.log('');
+async function promptForCliLaunch(inquirer, chalk) {
+  const { pick } = await inquirer.prompt([{
+    type: 'list',
+    name: 'pick',
+    message: chalk.bold('Open a CLI now?'),
+    choices: [
+      ...CLI_HOSTS.map((host) => ({
+        name: `  ${chalk.magenta('▸')} ${chalk.bold(host.name)}`,
+        value: host.value,
+      })),
+      { name: `  ${chalk.dim('Skip — I\'ll open it myself')}`, value: SKIP_LAUNCH_VALUE },
+    ],
+    loop: false,
+  }]);
 
-    if (cli === 'all') {
-      for (const host of CLI_HOSTS) await installSkill(host, chalk, ora);
-    } else {
-      await installSkill(CLI_HOSTS.find(h => h.value === cli), chalk, ora);
+  return pick;
+}
+
+async function runInstallFlow(inquirer, chalk, ora) {
+  console.log('');
+  const cli = await promptForCliTarget(inquirer, chalk);
+  console.log('');
+
+  if (cli === ALL_HOSTS_VALUE) {
+    for (const host of CLI_HOSTS) {
+      await installSkill(host, chalk, ora);
     }
+  } else {
+    await installSkill(findHost(cli), chalk, ora);
+  }
 
-    // Pick which CLI to open
-    let hostToLaunch;
-    if (cli === 'all') {
+  let hostToLaunch = findHost(cli);
+  if (cli === ALL_HOSTS_VALUE) {
+    console.log('');
+    const pick = await promptForCliLaunch(inquirer, chalk);
+    if (pick === SKIP_LAUNCH_VALUE) {
       console.log('');
-      const { pick } = await inquirer.prompt([{
-        type: 'list',
-        name: 'pick',
-        message: chalk.bold('Open a CLI now?'),
-        choices: [
-          ...CLI_HOSTS.map(h => ({
-            name: `  ${chalk.magenta('▸')} ${chalk.bold(h.name)}`,
-            value: h.value,
-          })),
-          new inquirer.Separator(chalk.dim('  ────────────────────────────────')),
-          { name: `  ${chalk.dim('Skip — I\'ll open it myself')}`, value: 'skip' },
-        ],
-        loop: false,
-      }]);
-      if (pick === 'skip') {
-        console.log('');
-        console.log(chalk.dim('    Type /clean-image in your CLI to use it.'));
-        console.log('');
-        return;
-      }
-      hostToLaunch = CLI_HOSTS.find(h => h.value === pick);
-    } else {
-      hostToLaunch = CLI_HOSTS.find(h => h.value === cli);
-    }
-
-    // Check if CLI exists
-    try {
-      execSync(`which ${hostToLaunch.cmd}`, { stdio: 'ignore' });
-    } catch {
-      console.log('');
-      console.log(chalk.red(`    ✗ ${hostToLaunch.cmd} not found on PATH`));
-      console.log(chalk.dim(`    Install ${hostToLaunch.name} first.`));
+      console.log(chalk.dim('    Type /clean-image in your CLI to use it.'));
       console.log('');
       return;
     }
+    hostToLaunch = findHost(pick);
+  }
 
-    // Copy /clean-image to clipboard so user can paste
-    const copied = copyToClipboard(hostToLaunch.usage);
+  if (!ensureCliAvailable(hostToLaunch)) {
     console.log('');
-    console.log(chalk.bold.white(`    Opening ${hostToLaunch.name}...`));
+    console.log(chalk.red(`    ✗ ${hostToLaunch.cmd} not found on PATH`));
+    console.log(chalk.dim(`    Install ${hostToLaunch.name} first.`));
     console.log('');
-    if (copied) {
-      console.log(chalk.green(`    ✓ ${chalk.bold(hostToLaunch.usage)} copied to clipboard`));
-      console.log(chalk.dim(`    Just ⌘V to paste and hit Enter.`));
-    } else {
-      console.log(chalk.dim(`    Type: ${chalk.bold(hostToLaunch.usage)}`));
-    }
-    console.log('');
-
-    // Build launch args
-    const launchArgs = [];
-    if (hostToLaunch.value === 'claude') {
-      launchArgs.push('--dangerously-skip-permissions');
-    }
-
-    const child = _spawn(hostToLaunch.cmd, launchArgs, { stdio: 'inherit' });
-    child.on('close', () => process.exit(0));
     return;
   }
 
-  // ═══════════════════════════════════════
-  // CLEAN FLOW
-  // ═══════════════════════════════════════
-
-  const spinner = ora({ text: 'Checking dependencies...', color: 'cyan' }).start();
-  const missing = await checkDeps();
-  if (missing.length > 0) {
-    spinner.fail(chalk.red(`Missing: ${missing.join(', ')}`));
-    console.log(chalk.dim(`\n    brew install ${missing.join(' ')}\n`));
-    process.exit(1);
-  }
-  spinner.succeed(chalk.green('Dependencies OK'));
+  const copied = copyToClipboard(hostToLaunch.usage);
+  console.log('');
+  console.log(chalk.bold.white(`    Opening ${hostToLaunch.name}...`));
   console.log('');
 
-  // Find images in cwd
-  const imageExts = ['.png', '.jpg', '.jpeg', '.webp', '.tiff', '.tif', '.bmp', '.avif'];
-  let images = [];
-  try {
-    const { readdirSync } = await import('node:fs');
-    images = readdirSync(process.cwd())
-      .filter(f => imageExts.includes(extname(f).toLowerCase()))
-      .sort();
-  } catch {}
-
-  // Select image
-  let inputPath;
-  if (images.length > 0) {
-    const { source } = await inquirer.prompt([{
-      type: 'list',
-      name: 'source',
-      message: chalk.bold('Pick an image:'),
-      choices: [
-        ...images.map(f => ({ name: `  📄 ${f}`, value: f })),
-        new inquirer.Separator(chalk.dim('  ────────────────────────────────')),
-        { name: `  ${chalk.dim('📁 Drag & drop or type a path...')}`, value: '__manual__' }
-      ],
-      loop: false,
-    }]);
-
-    inputPath = source === '__manual__' ? await askForPath(inquirer, chalk) : resolve(source);
+  if (copied) {
+    console.log(chalk.green(`    ✓ ${chalk.bold(hostToLaunch.usage)} copied to clipboard`));
+    console.log(chalk.dim('    Just ⌘V to paste and hit Enter.'));
   } else {
-    console.log(chalk.dim('    No images in current directory.\n'));
-    inputPath = await askForPath(inquirer, chalk);
+    console.log(chalk.dim(`    Type: ${chalk.bold(hostToLaunch.usage)}`));
   }
 
-  // Select mode
+  console.log('');
+  launchCli(hostToLaunch);
+}
+
+async function ensureDependencies(checkDeps, installDeps, ora, chalk) {
+  const spinner = ora({ text: 'Checking dependencies...', color: 'cyan' }).start();
+  const missing = await checkDeps();
+
+  if (missing.length === 0) {
+    spinner.succeed(chalk.green('Dependencies OK'));
+    console.log('');
+    return;
+  }
+
+  spinner.warn(chalk.yellow(`Missing: ${missing.join(', ')}`));
+
+  const installSpinner = ora({ text: `Installing ${missing.join(', ')}...`, color: 'cyan' }).start();
+  const result = await installDeps(missing, {
+    onProgress: (message) => {
+      installSpinner.text = message;
+    },
+  });
+
+  if (!result.success) {
+    installSpinner.fail(chalk.red(`Auto-install failed: ${result.error}`));
+    console.log('');
+    console.log(chalk.dim('    Install manually:'));
+    console.log(chalk.cyan(`    brew install ${missing.join(' ')}`));
+    console.log('');
+    process.exit(1);
+  }
+
+  installSpinner.succeed(chalk.green(`Installed ${missing.join(', ')}`));
+  console.log('');
+}
+
+async function getImagesInCurrentDirectory() {
+  try {
+    const entries = await readdir(process.cwd());
+    return entries
+      .filter((file) => IMAGE_EXTENSIONS.has(extname(file).toLowerCase()))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+async function askForPath(inquirer, chalk) {
+  const { path } = await inquirer.prompt([{
+    type: 'input',
+    name: 'path',
+    message: `${chalk.bold('Image path')} ${chalk.dim('(drag & drop here)')}:`,
+    filter: (value) => cleanPath(value),
+    validate: async (raw) => {
+      const value = cleanPath(raw);
+      if (!value) {
+        return 'Drop an image file here or type a path';
+      }
+
+      try {
+        await access(resolve(value));
+        return true;
+      } catch {
+        return `File not found: ${value}`;
+      }
+    },
+  }]);
+
+  return resolve(cleanPath(path));
+}
+
+async function promptForImage(inquirer, chalk) {
+  const images = await getImagesInCurrentDirectory();
+
+  if (images.length === 0) {
+    console.log(chalk.dim('    No images in current directory.\n'));
+    return askForPath(inquirer, chalk);
+  }
+
+  const { source } = await inquirer.prompt([{
+    type: 'list',
+    name: 'source',
+    message: chalk.bold('Pick an image:'),
+    choices: [
+      ...images.map((file) => ({ name: `  📄 ${file}`, value: file })),
+      { name: `  ${chalk.dim('📁 Drag & drop or type a path...')}`, value: MANUAL_PATH_VALUE },
+    ],
+    loop: false,
+  }]);
+
+  return source === MANUAL_PATH_VALUE ? askForPath(inquirer, chalk) : resolve(source);
+}
+
+async function promptForMode(inquirer, chalk) {
   const { mode } = await inquirer.prompt([{
     type: 'list',
     name: 'mode',
@@ -290,28 +350,42 @@ export async function runTUI() {
     loop: false,
   }]);
 
-  // Select quality
-  let quality = 92;
-  if (mode !== 'strip') {
-    const { q } = await inquirer.prompt([{
-      type: 'list',
-      name: 'q',
-      message: chalk.bold('Quality:'),
-      choices: [
-        { name: `  ${chalk.bold('95')}  ${chalk.dim('— highest quality, larger file')}`, value: 95 },
-        { name: `  ${chalk.bold('92')}  ${chalk.dim('— recommended')}`, value: 92 },
-        { name: `  ${chalk.bold('85')}  ${chalk.dim('— good balance')}`, value: 85 },
-        { name: `  ${chalk.bold('75')}  ${chalk.dim('— smallest file')}`, value: 75 },
-      ],
-      default: 1,
-      loop: false,
-    }]);
-    quality = q;
+  return mode;
+}
+
+async function promptForQuality(inquirer, chalk, mode) {
+  if (mode === 'strip') {
+    return 92;
   }
 
-  // Run cleaning
+  const { quality } = await inquirer.prompt([{
+    type: 'list',
+    name: 'quality',
+    message: chalk.bold('Quality:'),
+    choices: [
+      { name: `  ${chalk.bold('95')}  ${chalk.dim('— highest quality, larger file')}`, value: 95 },
+      { name: `  ${chalk.bold('92')}  ${chalk.dim('— recommended')}`, value: 92 },
+      { name: `  ${chalk.bold('85')}  ${chalk.dim('— good balance')}`, value: 85 },
+      { name: `  ${chalk.bold('75')}  ${chalk.dim('— smallest file')}`, value: 75 },
+    ],
+    default: 1,
+    loop: false,
+  }]);
+
+  return quality;
+}
+
+async function runCleanFlow(inquirer, chalk, ora, services) {
+  const { checkDeps, cleanImage, getMetadataCount, getFileSize, installDeps } = services;
+
+  await ensureDependencies(checkDeps, installDeps, ora, chalk);
+
+  const inputPath = await promptForImage(inquirer, chalk);
+  const mode = await promptForMode(inquirer, chalk);
+  const quality = await promptForQuality(inquirer, chalk, mode);
+
   console.log('');
-  const cleanSpinner = ora({ text: 'Starting pipeline...', color: 'magenta' }).start();
+  const spinner = ora({ text: 'Starting pipeline...', color: 'magenta' }).start();
   const inputSize = await getFileSize(inputPath);
   const inputMeta = await getMetadataCount(inputPath);
 
@@ -320,52 +394,65 @@ export async function runTUI() {
       quality,
       aggressive: mode === 'aggressive',
       stripOnly: mode === 'strip',
-      onProgress: (msg) => { cleanSpinner.text = msg; },
+      onProgress: (message) => {
+        spinner.text = message;
+      },
     });
 
     const outputSize = await getFileSize(outPath);
     const outputMeta = await getMetadataCount(outPath);
-    cleanSpinner.succeed(chalk.green.bold('Done!'));
 
-    const modeLabel = mode === 'aggressive' ? 'aggressive' : mode === 'strip' ? 'strip-only' : 'standard';
-    const savedPct = Math.round((1 - outputSize / inputSize) * 100);
-    const metaRemoved = inputMeta - outputMeta;
-
-    console.log('');
-    console.log(chalk.dim('    ──────────────────────────────────────'));
-    console.log(chalk.bold.white('    RESULTS'));
-    console.log(chalk.dim('    ──────────────────────────────────────'));
-    console.log(`    ${chalk.dim('Mode')}       ${chalk.cyan(modeLabel)}`);
-    console.log(`    ${chalk.dim('Size')}       ${Math.round(inputSize / 1024)} KB → ${chalk.green.bold(Math.round(outputSize / 1024) + ' KB')} ${chalk.dim(`(${savedPct > 0 ? '-' : '+'}${Math.abs(savedPct)}%)`)}`);
-    console.log(`    ${chalk.dim('Metadata')}   ${inputMeta} fields → ${chalk.green.bold(outputMeta + ' fields')} ${chalk.dim(`(${metaRemoved} stripped)`)}`);
-    console.log(`    ${chalk.dim('Output')}     ${chalk.white(outPath)}`);
-    console.log(chalk.dim('    ──────────────────────────────────────'));
-    console.log('');
-    console.log(chalk.green.bold('    ✓ Zero AI fingerprints remain.'));
-    console.log('');
-  } catch (err) {
-    cleanSpinner.fail(chalk.red('Failed'));
-    console.error(chalk.red(`\n    ${err.message}\n`));
+    spinner.succeed(chalk.green.bold('Done!'));
+    printResults(chalk, {
+      mode,
+      inputSize,
+      outputSize,
+      inputMeta,
+      outputMeta,
+      outPath,
+    });
+  } catch (error) {
+    spinner.fail(chalk.red('Failed'));
+    console.error(chalk.red(`\n    ${error.message}\n`));
     process.exit(1);
   }
 }
 
-async function askForPath(inquirer, chalk) {
-  const { path } = await inquirer.prompt([{
-    type: 'input',
-    name: 'path',
-    message: `${chalk.bold('Image path')} ${chalk.dim('(drag & drop here)')}:`,
-    filter: (val) => cleanPath(val),
-    validate: async (raw) => {
-      const val = cleanPath(raw);
-      if (!val) return 'Drop an image file here or type a path';
-      try {
-        await access(resolve(val));
-        return true;
-      } catch {
-        return `File not found: ${val}`;
-      }
-    }
+export async function runTUI() {
+  const chalk = (await import('chalk')).default;
+  const ora = (await import('ora')).default;
+  const inquirer = (await import('inquirer')).default;
+  const {
+    checkDeps,
+    cleanImage,
+    getMetadataCount,
+    getFileSize,
+    installDeps,
+  } = await import('./cleaner.js');
+
+  printHeader(chalk);
+
+  const { action } = await inquirer.prompt([{
+    type: 'list',
+    name: 'action',
+    message: chalk.bold('What do you want to do?'),
+    choices: [
+      { name: `  ${chalk.green('●')} ${chalk.bold('Clean an image')}        ${chalk.dim('— strip AI metadata now')}`, value: 'clean' },
+      { name: `  ${chalk.cyan('●')} ${chalk.bold('Install CLI skill')}     ${chalk.dim('— add to Claude / Codex / OpenCode')}`, value: 'install' },
+    ],
+    loop: false,
   }]);
-  return resolve(cleanPath(path));
+
+  if (action === 'install') {
+    await runInstallFlow(inquirer, chalk, ora);
+    return;
+  }
+
+  await runCleanFlow(inquirer, chalk, ora, {
+    checkDeps,
+    cleanImage,
+    getMetadataCount,
+    getFileSize,
+    installDeps,
+  });
 }
