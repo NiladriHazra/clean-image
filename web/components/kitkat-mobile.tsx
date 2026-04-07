@@ -22,12 +22,31 @@ export function KitKatMobile() {
   } = useCleanImage();
 
   const [clock, setClock] = useState(getClock());
+  const [battery, setBattery] = useState(100);
+  const [charging, setCharging] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [installCopied, setInstallCopied] = useState(false);
 
   useEffect(() => {
-    const id = setInterval(() => setClock(getClock()), 30_000);
+    const id = setInterval(() => setClock(getClock()), 1_000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const nav = navigator as Navigator & { getBattery?: () => Promise<{ level: number; charging: boolean; addEventListener: (e: string, cb: () => void) => void; removeEventListener: (e: string, cb: () => void) => void }> };
+    if (!nav.getBattery) return;
+
+    const update = (batt: { level: number; charging: boolean }) => {
+      setBattery(Math.round(batt.level * 100));
+      setCharging(batt.charging);
+    };
+
+    void nav.getBattery().then((batt) => {
+      update(batt);
+      const onChange = () => update(batt);
+      batt.addEventListener('levelchange', onChange);
+      batt.addEventListener('chargingchange', onChange);
+    });
   }, []);
 
   async function copyInstall() {
@@ -47,8 +66,13 @@ export function KitKatMobile() {
           <svg width="14" height="12" viewBox="0 0 24 18" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><path d="M1 5c5.5-4.5 16.5-4.5 22 0"/><path d="M5 9c3.5-3 10.5-3 14 0"/><path d="M9 13c1.7-1.5 5.3-1.5 7 0"/><circle cx="12" cy="16" r="1.5" fill="#fff" stroke="none"/></svg>
         </div>
         <div className="kk-sb-right">
-          <svg width="20" height="10" viewBox="0 0 28 14" fill="none"><rect x="0.5" y="1" width="24" height="12" rx="1.5" stroke="#fff" strokeWidth="1"/><rect x="25" y="4" width="2.5" height="6" rx="0.5" fill="#fff"/><rect x="2" y="3" width="20" height="8" rx="0.5" fill="#4caf50"/></svg>
-          <span className="kk-sb-text">100%</span>
+          <svg width="20" height="10" viewBox="0 0 28 14" fill="none">
+            <rect x="0.5" y="1" width="24" height="12" rx="1.5" stroke="#fff" strokeWidth="1"/>
+            <rect x="25" y="4" width="2.5" height="6" rx="0.5" fill="#fff"/>
+            <rect x="2" y="3" width={20 * battery / 100} height="8" rx="0.5" fill={battery <= 20 ? '#ff5252' : '#4caf50'}/>
+            {charging && <text x="12" y="11" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="bold">&#x26A1;</text>}
+          </svg>
+          <span className="kk-sb-text">{battery}%</span>
           <span className="kk-sb-text">{clock}</span>
         </div>
       </div>
