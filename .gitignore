@@ -1,3 +1,32 @@
-node_modules/
-*.tgz
+# top-level misc
 .DS_Store
+*.pem
+*.tgz
+
+# web app
+/web/node_modules
+/web/.next
+/web/out
+/web/build
+/web/.vercel
+/web/*.tsbuildinfo
+web/next-env.d.ts
+/cli/node_modules
+
+# package managers
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env*

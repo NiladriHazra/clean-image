@@ -1,306 +1,96 @@
-<p align="center">
-  <img src="https://img.shields.io/npm/v/clean-image?style=flat-square&color=ff8c00" alt="npm version" />
-  <img src="https://img.shields.io/npm/dm/clean-image?style=flat-square&color=ff3300" alt="downloads" />
-  <img src="https://img.shields.io/badge/license-MIT-ffde00?style=flat-square" alt="license" />
-  <img src="https://img.shields.io/badge/node-%3E%3D16-green?style=flat-square" alt="node" />
-</p>
+# clean-image
 
-<h1 align="center">
-  <br>
-  clean-image
-  <br>
-</h1>
+`clean-image` is organized as two top-level apps:
 
-<h4 align="center">Strip every trace of AI from your images. One command. Zero evidence.</h4>
+- `cli/` contains the original Node.js CLI and TUI workflow
+- `web/` contains the Next.js app and local processing routes
 
-<p align="center">
-  <a href="#install">Install</a> &nbsp;&bull;&nbsp;
-  <a href="#usage">Usage</a> &nbsp;&bull;&nbsp;
-  <a href="#the-pipeline">How it works</a> &nbsp;&bull;&nbsp;
-  <a href="#cli-skills">CLI Skills</a> &nbsp;&bull;&nbsp;
-  <a href="#api">API</a>
-</p>
+The web UI follows the Vercel-inspired design system in `web/DESIGN.md`.
 
-<br>
+## Architecture
 
-<table>
-<tr>
-<td>
+### `cli/`
 
-### The problem
+- Entry point: `cli/bin/cli.js`
+- Runtime: Node.js
+- Includes:
+  - command-line image cleaning
+  - interactive TUI flow
+  - dependency checks and optional install helpers
 
-Every AI image generator embeds invisible fingerprints into your images. EXIF tags, XMP markers, C2PA Content Credentials, PNG text chunks, pixel-level signatures. Platforms like Twitter/X, Facebook, and Adobe read these markers and **label your images as AI-generated**.
+### `web/`
 
-Existing tools only strip *some* metadata. A single leftover `APP1` marker or a C2PA manifest buried in a JFIF segment is enough to flag you.
+- Framework: Next.js 16 App Router
+- Structure: official `create-next-app` layout
+- Feature UI: `web/features/clean-image/components/`
+- Shared client contracts: `web/lib/clean-image/`
+- Server processing pipeline: `web/lib/server/cleaner/`
+- Responsibilities:
+  - Upload UX
+  - Mode and quality controls
+  - Runtime health and dependency checks
+  - Same-origin route handlers for processing and downloads
+  - Local file cleaning pipeline
 
-### The solution
+The Next.js pipeline preserves the original behavior:
 
-**clean-image** does not just strip metadata. It **destroys and rebuilds** the image from the ground up. Four-pass pipeline. Two re-encodes. Two nuclear strips. Nothing survives.
+1. FFmpeg re-encode
+2. ExifTool strip
+3. FFmpeg re-encode
+4. ExifTool final strip
 
-`ExifTool alone` misses embedded C2PA manifests and PNG text chunks.
-`FFmpeg alone` misses residual XMP and IPTC tags.
-`Online tools` re-compress at garbage quality and keep your images.
+`strip-only` mode removes metadata without re-encoding.
 
-**clean-image runs all four passes because no single tool catches everything.**
+## Local development
 
-</td>
-</tr>
-</table>
-
-<br>
-
-<br>
-
-## What it kills
-
-| Metadata | Embedded by | Detected by | Killed? |
-|:---|:---|:---|:---:|
-| EXIF (software, AI tool tags) | All generators | Most platforms | **Yes** |
-| XMP (`ai:generative`, creator tools) | Adobe, Midjourney | Twitter/X, Facebook | **Yes** |
-| IPTC (`digitalSourceType`) | News tools, Adobe | AP, Reuters | **Yes** |
-| C2PA / Content Credentials | Adobe, OpenAI, Google | Twitter/X, Adobe CAI | **Yes** |
-| PNG text chunks (prompt, params) | ComfyUI, A1111, SD | Detection tools | **Yes** |
-| ICC color profiles | Various | Forensic tools | **Yes** |
-| JFIF / APP markers | JPEG encoders | Forensic tools | **Yes** |
-| Pixel-level AI fingerprints | Generators | Advanced detection | **Yes**\* |
-
-<sub>\* Aggressive mode only: applies imperceptible gaussian blur (σ=0.3)</sub>
-
-<br>
-
-## Install
+### 1. Install dependencies
 
 ```bash
-npm install -g clean-image
+npm install --prefix cli
+bun install --cwd web
 ```
 
-Or run without installing:
+### 2. Start the app
 
 ```bash
-npx clean-image
+bun --cwd web dev
 ```
 
-<details>
-<summary><strong>System dependencies</strong> (required)</summary>
+Default URL:
 
-<br>
+```text
+http://127.0.0.1:3000
+```
 
-| Platform | Command |
-|:---|:---|
-| macOS | `brew install exiftool ffmpeg` |
-| Ubuntu / Debian | `sudo apt install exiftool ffmpeg` |
-| Arch | `sudo pacman -S perl-image-exiftool ffmpeg` |
-| Windows (WSL) | `sudo apt install exiftool ffmpeg` |
-
-</details>
-
-<br>
-
-## Usage
-
-### Interactive TUI
-
-Run with no arguments to launch the interactive terminal UI:
+## Commands
 
 ```bash
-clean-image
+npm --prefix cli start
+bun --cwd web dev
+bun --cwd web build
+bun --cwd web lint
 ```
 
-```
-    ██████╗██╗     ███████╗ █████╗ ███╗   ██╗
-   ██╔════╝██║     ██╔════╝██╔══██╗████╗  ██║
-   ██║     ██║     █████╗  ███████║██╔██╗ ██║
-   ██║     ██║     ██╔══╝  ██╔══██║██║╚██╗██║
-   ╚██████╗███████╗███████╗██║  ██║██║ ╚████║
-    ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝
-    ██╗███╗   ███╗ █████╗  ██████╗ ███████╗
-    ██║████╗ ████║██╔══██╗██╔════╝ ██╔════╝
-    ██║██╔████╔██║███████║██║  ███╗█████╗
-    ██║██║╚██╔╝██║██╔══██║██║   ██║██╔══╝
-    ██║██║ ╚═╝ ██║██║  ██║╚██████╔╝███████╗
-    ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
+## System dependencies
 
-    Strip AI metadata. Four passes. Zero trace.
+The Next.js processing routes require:
 
-  ? What do you want to do?
-  ❯ ● Clean an image       : strip AI metadata now
-    ● Install CLI skill    : add to Claude / Codex / OpenCode
-```
+- `ffmpeg`
+- `exiftool`
 
-Features:
-- **Auto-detects images** in your current directory
-- **Drag & drop** any image file into the terminal
-- **Choose mode**: Standard, Aggressive, or Strip-only
-- **Pick quality**: 95, 92, 85, or 75
-- **Before/after report**: file size, metadata count, % reduction
-
-### Direct CLI
+macOS:
 
 ```bash
-# Basic: clean any image
-clean-image photo.png
-
-# Aggressive: defeats pixel-level fingerprinting
-clean-image -a photo.png
-
-# Custom quality
-clean-image -q 85 photo.webp
-
-# Custom output path
-clean-image photo.png -o clean.jpg
-
-# Strip metadata only: no re-encoding
-clean-image -s photo.jpg
+brew install ffmpeg exiftool
 ```
 
-### See it work
-
-```
-$ clean-image -a ai-artwork.png
-
-  ⠸ Pass 1/4 — FFmpeg re-encode
-  ⠸ Pass 2/4 — ExifTool nuclear strip
-  ⠸ Pass 3/4 — FFmpeg re-encode #2
-  ⠸ Pass 4/4 — ExifTool final strip
-  ✓ Done!
-
-    RESULTS
-    Mode       aggressive
-    Size       2847 KB → 1923 KB (-32%)
-    Metadata   43 fields → 5 fields (38 stripped)
-    Output     ./ai-artwork-clean.jpg
-
-    ✓ Zero AI fingerprints remain.
-```
-
-<br>
-
-## The pipeline
-
-1. **Pass 1: FFmpeg re-encode**
-   Re-encodes with `-map_metadata -1` and `+bitexact` flags. In aggressive mode it also applies a tiny gaussian blur to break pixel fingerprints.
-
-2. **Pass 2: ExifTool nuclear strip**
-   Runs `-all=` to remove XMP, IPTC, residual EXIF, and other metadata FFmpeg can leave behind.
-
-3. **Pass 3: FFmpeg re-encode #2**
-   Rebuilds the output again from the stripped intermediate file to remove lingering APP markers and container-level residue.
-
-4. **Pass 4: ExifTool final strip**
-   Performs a final metadata wipe on the finished output.
-
-Result: a clean JPEG with zero AI fingerprints.
-
-<br>
-
-## Options
-
-| Flag | Description | Default |
-|:---|:---|:---|
-| `-q, --quality <n>` | JPEG quality (1-100) | `92` |
-| `-s, --strip-only` | Strip metadata only, no re-encoding | `false` |
-| `-a, --aggressive` | Gaussian blur (σ=0.3) + full pipeline | `false` |
-| `-o, --output <file>` | Output file path | `<input>-clean.jpg` |
-| `-h, --help` | Show help | — |
-| `-V, --version` | Show version | — |
-| *(no args)* | Launch interactive TUI | — |
-
-<br>
-
-## Modes
-
-| Mode | Flag | What it does | Use when |
-|:---|:---|:---|:---|
-| **Standard** | *(default)* | 4-pass strip + re-encode | Most use cases |
-| **Aggressive** | `-a` | Standard + imperceptible blur (σ=0.3) | Pixel-level detection is a concern |
-| **Strip only** | `-s` | Metadata removal, no re-encoding | You need exact pixel preservation |
-| **Interactive** | *(no args)* | Full TUI with guided prompts | First time using the tool |
-
-<br>
-
-## CLI Skills
-
-clean-image installs as a slash command in your AI coding CLI. Run the TUI and select **"Install CLI skill"**, or install manually:
-
-### Claude Code
+Ubuntu / Debian:
 
 ```bash
-cp .claude/commands/clean-image.md ~/.claude/commands/
-```
-Then use `/clean-image` inside Claude Code.
-
-### Codex CLI
-
-The skill auto-appends to `~/.codex/instructions.md` via the installer.
-
-### OpenCode
-
-```bash
-cp .claude/commands/clean-image.md ~/.opencode/commands/
-```
-Then use `/clean-image` inside OpenCode.
-
-### One-step install for all CLIs
-
-```bash
-npx clean-image   # → select "Install CLI skill" → "All of them"
+sudo apt-get install -y ffmpeg libimage-exiftool-perl
 ```
 
-<br>
+## Notes
 
-## API
-
-Use clean-image programmatically in your Node.js projects:
-
-```js
-import { cleanImage, checkDeps } from 'clean-image';
-
-// Check system dependencies
-const missing = await checkDeps();
-if (missing.length) {
-  console.error(`Missing: ${missing.join(', ')}`);
-  process.exit(1);
-}
-
-// Clean an image
-const output = await cleanImage('input.png', {
-  quality: 92,           // JPEG quality (1-100)
-  aggressive: true,      // Enable pixel-level cleaning
-  stripOnly: false,      // Set true to skip re-encoding
-  output: 'clean.jpg',   // Custom output path (optional)
-  onProgress: (msg) => console.log(msg),
-});
-
-console.log(`Cleaned: ${output}`);
-```
-
-<br>
-
-## How it compares
-
-| Tool | Strips EXIF | Strips XMP | Strips C2PA | Re-encodes | Pixel cleaning | CLI + TUI |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|
-| ExifTool | Yes | Yes | No | No | No | CLI only |
-| ImageMagick | Partial | Partial | No | Yes | No | CLI only |
-| Online tools | Varies | Varies | Varies | Yes | No | Web only |
-| **clean-image** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Both** |
-
-<br>
-
-## Requirements
-
-- **Node.js** >= 16
-- **exiftool**: metadata manipulation
-- **ffmpeg**: image re-encoding
-
-<br>
-
-## License
-
-MIT
-
----
-
-<p align="center">
-  <strong>What you create is yours. clean-image makes sure it stays that way.</strong>
-</p>
+- `cli/` and `web/` now coexist again.
+- `web/app/api/health`, `web/app/api/dependencies`, `web/app/api/clean`, and `web/app/api/download/[artifactId]` are the runtime endpoints.
