@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.1.0
         with:
           role-to-assume: arn:aws:iam::377002868347:role/clean-image-github-deploy
           aws-region: ap-south-1
@@ -52,7 +52,7 @@ jobs:
           python3 <<'PY' >/tmp/ssm-params.json
           import json
           commands = [
-              "set -euxo pipefail",
+              "set -eu",
               "cd /opt/clean-image",
               "git fetch origin main",
               "git checkout main",
