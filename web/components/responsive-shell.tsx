@@ -1,23 +1,29 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { XpDesktop } from '@/components/xp-desktop';
 import { KitKatMobile } from '@/components/kitkat-mobile';
 
+const MOBILE_QUERY = '(max-width: 640px)';
+
+function subscribe(onStoreChange: () => void) {
+  const mediaQuery = window.matchMedia(MOBILE_QUERY);
+  const handler = () => onStoreChange();
+
+  mediaQuery.addEventListener('change', handler);
+  return () => mediaQuery.removeEventListener('change', handler);
+}
+
+function getSnapshot() {
+  return window.matchMedia(MOBILE_QUERY).matches;
+}
+
+function getServerSnapshot() {
+  return false;
+}
+
 export function ResponsiveShell() {
-  const [isMobile, setIsMobile] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    const mq = window.matchMedia('(max-width: 640px)');
-    setIsMobile(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-
-  if (!mounted) return null;
+  const isMobile = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   return isMobile ? <KitKatMobile /> : <XpDesktop />;
 }
